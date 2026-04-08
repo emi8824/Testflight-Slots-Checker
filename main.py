@@ -1,6 +1,7 @@
 import requests
 from lxml import html
 import time
+import io
 
 # -----------------------------
 # НАСТРОЙКИ
@@ -21,9 +22,10 @@ MSG_FULL = "<b>{}</b> снова заполнена."
 
 TESTFLIGHT_URL = "https://testflight.apple.com/join/{}"
 
-XPATH_STATUS = '//span[contains(text(), "beta") or contains(text(), "accepting") or contains(text(), "full") or contains(text(), "версии")]/text()'
+# Новый, надёжный XPATH для иконки
+XPATH_ICON = '//meta[@property="og:image"]/@content'
 XPATH_TITLE = '//title/text()'
-XPATH_ICON = '//img[contains(@class, "we-artwork__image")]/@src'
+XPATH_STATUS = '//span[contains(text(), "beta") or contains(text(), "accepting") or contains(text(), "full") or contains(text(), "версии")]/text()'
 
 
 # -----------------------------
@@ -47,29 +49,36 @@ def load_ids():
 
 
 def send_telegram_message(message, icon_url=None):
-    try:
-        if icon_url:
-            requests.get(
+    """Отправка сообщения с иконкой (как файл)."""
+
+    if icon_url:
+        try:
+            # Скачиваем иконку
+            img_data = requests.get(icon_url, timeout=10).content
+
+            # Telegram сам определит формат
+            files = {"photo": ("icon.png", img_data)}
+
+            requests.post(
                 PHOTO_URL,
-                params={
-                    "chat_id": CHAT_ID,
-                    "photo": icon_url,
-                    "caption": message,
-                    "parse_mode": "html"
-                }
+                data={"chat_id": CHAT_ID, "caption": message, "parse_mode": "html"},
+                files=files
             )
-        else:
-            requests.get(
-                BOT_URL,
-                params={
-                    "chat_id": CHAT_ID,
-                    "text": message,
-                    "parse_mode": "html",
-                    "disable_web_page_preview": "true"
-                }
-            )
-    except Exception as e:
-        print("Ошибка отправки Telegram:", e)
+            return
+
+        except Exception as e:
+            print("Ошибка загрузки иконки:", e)
+
+    # fallback — без картинки
+    requests.get(
+        BOT_URL,
+        params={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "html",
+            "disable_web_page_preview": "true"
+        }
+    )
 
 
 # -----------------------------
@@ -157,5 +166,4 @@ def watch(watch_ids, notify_full=False):
 # -----------------------------
 
 watch_ids = load_ids()
-watch(watch_ids, notify_full=True)
-
+watch(watch_ids)
