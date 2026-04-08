@@ -157,4 +157,5 @@ def watch(watch_ids, notify_full=False):
 # -----------------------------
 
 watch_ids = load_ids()
-watch(watch_ids)
+watch(watch_ids, notify_full=True)
+
