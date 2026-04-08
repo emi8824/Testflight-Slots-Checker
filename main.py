@@ -1,7 +1,7 @@
 import requests
 from lxml import html
 import time
-import io
+import os
 
 # -----------------------------
 # НАСТРОЙКИ
@@ -40,12 +40,13 @@ def safe_sleep(seconds):
 
 
 def load_ids():
+    """Загружает список ID из config.txt."""
     try:
         with open("config.txt", "r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
     except:
         print("Файл config.txt не найден!")
-        exit()
+        return []
 
 
 def send_telegram_message(message, icon_url=None):
@@ -53,10 +54,7 @@ def send_telegram_message(message, icon_url=None):
 
     if icon_url:
         try:
-            # Скачиваем иконку
             img_data = requests.get(icon_url, timeout=10).content
-
-            # Telegram сам определит формат
             files = {"photo": ("icon.png", img_data)}
 
             requests.post(
@@ -85,13 +83,29 @@ def send_telegram_message(message, icon_url=None):
 # ОСНОВНАЯ ЛОГИКА МОНИТОРИНГА
 # -----------------------------
 
-def watch(watch_ids, notify_full=False):
+def watch(notify_full=False):
     data = {}
 
+    watch_ids = load_ids()
+    last_config_time = os.path.getmtime("config.txt")
+
+    print("[CONFIG] Initial watch list:", watch_ids)
+
     while True:
+
+        # --- Проверяем, изменился ли config.txt ---
+        try:
+            new_time = os.path.getmtime("config.txt")
+            if new_time != last_config_time:
+                last_config_time = new_time
+                watch_ids = load_ids()
+                print("[CONFIG] Updated watch list:", watch_ids)
+        except:
+            pass
+
+        # --- Основной цикл проверки ---
         for tf_id in watch_ids:
 
-            # --- запрос страницы ---
             try:
                 req = requests.get(
                     TESTFLIGHT_URL.format(tf_id),
@@ -107,7 +121,6 @@ def watch(watch_ids, notify_full=False):
 
             page = html.fromstring(req.text)
 
-            # --- статус ---
             status_list = page.xpath(XPATH_STATUS)
             if not status_list:
                 continue
@@ -124,10 +137,8 @@ def watch(watch_ids, notify_full=False):
 
             free_slots = not is_full
 
-            # --- изменение статуса ---
             if tf_id not in data or data[tf_id] != free_slots:
 
-                # --- название ---
                 title_raw = page.xpath(XPATH_TITLE)
                 if title_raw:
                     raw = title_raw[0].strip()
@@ -138,11 +149,9 @@ def watch(watch_ids, notify_full=False):
                 else:
                     title = "Unknown App"
 
-                # --- иконка ---
                 icon_raw = page.xpath(XPATH_ICON)
                 icon_url = icon_raw[0] if icon_raw else None
 
-                # --- уведомления ---
                 if free_slots:
                     message = MSG_NO_FULL.format(title, TESTFLIGHT_URL.format(tf_id))
                 else:
@@ -154,16 +163,14 @@ def watch(watch_ids, notify_full=False):
                 send_telegram_message(message, icon_url)
                 data[tf_id] = free_slots
 
-            # --- минимальный трафик ---
             if free_slots:
-                safe_sleep(180)   # 3 минуты
+                safe_sleep(180)
             else:
-                safe_sleep(900)   # 15 минут
+                safe_sleep(900)
 
 
 # -----------------------------
 # ЗАПУСК
 # -----------------------------
 
-watch_ids = load_ids()
-watch(watch_ids)
+watch()
